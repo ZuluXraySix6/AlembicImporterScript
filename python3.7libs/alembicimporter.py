@@ -1,3 +1,5 @@
+import time
+
 from PySide2 import QtWidgets
 from PySide2 import QtCore, QtGui
 from PySide2.QtWidgets import QApplication, QWidget, QAbstractItemView
@@ -8,17 +10,144 @@ import hou
 import os
 import sys
 import datetime as datetime
-from hou import SopNode, Node
 
 
 class MainWindow(QtWidgets.QDialog):
     def __init__(self, parm=None, parent=hou.qt.mainWindow()):
         super(MainWindow, self).__init__(parent)
+        self.abcPath = ""
+        self.abcFilePath = ""
+        self.abcFileList = []
+        self.fileDateModified = []
+        self.selectedFiles = []
+        self.node_for_network_box = []
         self.mainWindow()
+        # Set columns widths
+        self.abcTableWidget.setColumnWidth(0, 200)
+        self.abcTableWidget.setColumnWidth(1, 250)
+        self.ALL_BUTTONS()
+
+    def ALL_BUTTONS(self):
+        self.selectFolderBtn.clicked.connect(self.SET_ABC_PATH)
+        self.refreshBtn.clicked.connect(self.REFRESH)
+        self.executeBtn.clicked.connect(self.EXECUTE)
+
+    def SET_ABC_PATH(self):
+        self.abcFileList = []
+        self.abcPath = hou.ui.selectFile(title="Select folder containing alembic files",
+                                         file_type=hou.fileType.Directory)
+        self.abcpathField.setText(self.abcPath)
+        fileList = os.listdir(self.abcPath)
+        for x in fileList:
+            if x.endswith(".abc") or x.endswith(".ABC"):
+                fileDate = os.path.getmtime(self.abcPath + x)
+                fileDate = time.ctime(fileDate)
+                x = x[:-4]
+                self.abcFileList.append(x)
+                self.fileDateModified.append(fileDate)
+        self.abcTableWidget.setRowCount(len(self.abcFileList))
+        row0 = 0
+        row1 = 0
+        for y in self.abcFileList:
+            self.abcTableWidget.setItem(row0, 0, QTableWidgetItem(y))
+            row0 += 1
+        for z in self.fileDateModified:
+            self.abcTableWidget.setItem(row1, 1, QTableWidgetItem(z))
+            row1 += 1
+        self.abcTableWidget.setShowGrid(False)
+
+    def REFRESH(self):
+        pass
+
+    def EXECUTE(self):
+        self.selectedFiles = self.abcTableWidget.selectedIndexes()
+        for x in self.selectedFiles:
+            checkedNodes = []
+            # We are calling the index values from the List "selectedFiles" and then using those
+            # for ABC files that are selected.
+            current_file = self.abcFileList[x.row()]
+            geoNode = hou.node("/obj/").createNode("geo", "ABC_" + current_file)
+            geoNode.setColor(hou.Color(0, 0, 0))
+            geoNode.setSelectableInViewport(False)
+            self.node_for_network_box.append(geoNode)
+            abcNode = geoNode.createNode("alembic", "ABC_" + current_file)
+            self.abcFilePath = self.abcPath + current_file + ".abc"
+            abcNode.parm("fileName").set(self.abcFilePath)
+            if self.chkBxAddTransform.isChecked():
+                transformNode = geoNode.createNode("xform")
+                checkedNodes.append(transformNode)
+            if self.chkBxAddConvert.isChecked():
+                convertNode = geoNode.createNode("convert")
+                checkedNodes.append(convertNode)
+            if self.chkBxAddNormal.isChecked():
+                normalNode = geoNode.createNode("normal")
+                checkedNodes.append(normalNode)
+            if self.chkBxAddFileCache.isChecked():
+                fileNode = geoNode.createNode("filecache", "GEO_" + current_file)
+                fileNode.parm("basename").set("$OS")
+                checkedNodes.append(fileNode)
+            # Just connect one node to another after they are created.
+            if len(checkedNodes) > 0:
+                for item in checkedNodes:
+                    if item == checkedNodes[0]:
+                        item.setInput(0, abcNode)
+                        continue
+                    item.setInput(0, checkedNodes[checkedNodes.index(item) - 1])
+                    if item == checkedNodes[(len(checkedNodes) - 1)]:
+                        nullNode = geoNode.createNode("null", "OUT_" + current_file.upper())
+                        nullNode.setColor(hou.Color(0, 0, 0))
+                        nullNode.setGenericFlag(hou.nodeFlag.Render, 1)
+                        nullNode.setGenericFlag(hou.nodeFlag.Visible, 1)
+                        nullNode.setInput(0, item)
+                hou.node("/obj/" + "ABC_" + current_file).layoutChildren()
+            else:
+                nullNode = geoNode.createNode("null", "OUT_" + current_file.upper())
+                nullNode.setColor(hou.Color(0, 0, 0))
+                nullNode.setGenericFlag(hou.nodeFlag.Render, 1)
+                nullNode.setGenericFlag(hou.nodeFlag.Visible, 1)
+                nullNode.setInput(0, abcNode)
+                hou.node("/obj/" + "ABC_" + current_file).layoutChildren()
+        hou.node("/obj/").layoutChildren(items=self.node_for_network_box, horizontal_spacing=1.5, vertical_spacing=.5)
+        # Create a Network Box and add geo nodes into it...
+        box = hou.node("/obj").createNetworkBox()
+        for node in self.node_for_network_box:
+            box.addItem(node)
+        box.fitAroundContents()
+        box.setColor(hou.Color(0, 0, 0))
 
     def mainWindow(self):
         self.setWindowTitle("Alembic Importer")
         self.setMinimumSize(QSize(550, 650))
+        self.setStyleSheet(u"QPushButton"
+                           u"{\n"
+                           "		background-color: rgb(102, 102, 102);\n"
+                           "		border : 1px solid #000;\n"
+                           "		color:rgba(255, 255, 255, 255);\n"
+                           "		padding-left : 8px;\n"
+                           "		padding-right : 8px;\n"
+                           "		padding-top : 4px;\n"
+                           "		padding-bottom : 6px;\n"
+                           "		margin:3px;\n"
+                           "}\n"
+                           "QPushButton:hover{\n"
+                           "		background-color: rgba(99, 99, 99, 200);\n"
+                           "		border-radius:3px;\n"
+                           "		font: 9pt \"Calibri\";\n"
+                           "}\n"
+                           "QPushButton:pressed{\n"
+                           "		background-color: rgba(50, 50, 50, 200);\n"
+                           "		padding-left : 4px;\n"
+                           "		padding-top : 4px;\n"
+                           "}\n"
+                           "QHeaderView::section{\n"
+                           "	    font-size: 8pt;\n"
+                           "        border: 0px;\n"
+                           "        text-align: left;\n"
+                           "}\n"
+                           "QTableView::item{\n"
+                           "	    font-size: 8pt;\n"
+                           "        border: 0px;\n"
+                           "}")
         self.verticalLayout_2 = QtWidgets.QVBoxLayout(self)
         self.verticalLayout_2.setContentsMargins(0, 0, 0, 0)
         self.verticalLayout_2.setSpacing(0)
@@ -239,7 +368,7 @@ class MainWindow(QtWidgets.QDialog):
         item = self.abcTableWidget.horizontalHeaderItem(0)
         item.setText(_translate("Form", "ABC Files"))
         item = self.abcTableWidget.horizontalHeaderItem(1)
-        item.setText(_translate("Form", "Date Modified"))
+        item.setText(_translate("Form", "File Type"))
         self.chkBxIncludeSubfolders.setText(_translate("Form", "Include SubFolders"))
         self.chkBxAddTransform.setText(_translate("Form", "Add Transform"))
         self.chkBxAddConvert.setText(_translate("Form", "Add Convert"))
@@ -247,6 +376,7 @@ class MainWindow(QtWidgets.QDialog):
         self.chkBxAddFileCache.setText(_translate("Form", "Add File Cache"))
         self.executeBtn.setText(_translate("Form", "Execute"))
         self.cancelBtn.setText(_translate("Form", "Cancel"))
+
 
 dialog = MainWindow()
 dialog.show()
