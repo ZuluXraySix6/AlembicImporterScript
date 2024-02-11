@@ -1,6 +1,5 @@
-import time
-
 from PySide2 import QtWidgets
+import time
 from PySide2 import QtCore, QtGui
 from PySide2.QtWidgets import QApplication, QWidget, QAbstractItemView
 from PySide2.QtCore import *
@@ -24,40 +23,47 @@ class MainWindow(QtWidgets.QDialog):
         self.mainWindow()
         # Set columns widths
         self.abcTableWidget.setColumnWidth(0, 200)
-        self.abcTableWidget.setColumnWidth(1, 250)
+        self.abcTableWidget.setColumnWidth(1, 150)
         self.ALL_BUTTONS()
 
     def ALL_BUTTONS(self):
         self.selectFolderBtn.clicked.connect(self.SET_ABC_PATH)
-        self.refreshBtn.clicked.connect(self.REFRESH)
         self.executeBtn.clicked.connect(self.EXECUTE)
+        self.cancelBtn.clicked.connect(self.close)
 
     def SET_ABC_PATH(self):
         self.abcFileList = []
         self.abcPath = hou.ui.selectFile(title="Select folder containing alembic files",
                                          file_type=hou.fileType.Directory)
-        self.abcpathField.setText(self.abcPath)
-        fileList = os.listdir(self.abcPath)
-        for x in fileList:
-            if x.endswith(".abc") or x.endswith(".ABC"):
-                fileDate = os.path.getmtime(self.abcPath + x)
-                fileDate = time.ctime(fileDate)
-                x = x[:-4]
-                self.abcFileList.append(x)
-                self.fileDateModified.append(fileDate)
-        self.abcTableWidget.setRowCount(len(self.abcFileList))
-        row0 = 0
-        row1 = 0
-        for y in self.abcFileList:
-            self.abcTableWidget.setItem(row0, 0, QTableWidgetItem(y))
-            row0 += 1
-        for z in self.fileDateModified:
-            self.abcTableWidget.setItem(row1, 1, QTableWidgetItem(z))
-            row1 += 1
-        self.abcTableWidget.setShowGrid(False)
+        if self.abcPath:
+            self.abcpathField.setText(self.abcPath)
+            fileList = os.listdir(self.abcPath)
+            for x in fileList:
+                if x.endswith(".abc") or x.endswith(".ABC"):
+                    fileDate = os.path.getmtime(self.abcPath + x)
+                    fileDate = time.ctime(fileDate)
+                    x = x[:-4]
+                    self.abcFileList.append(x)
+                    self.fileDateModified.append(fileDate)
+            self.abcTableWidget.setRowCount(len(self.abcFileList))
+            row0 = 0
+            row1 = 0
+            for y in self.abcFileList:
+                self.abcTableWidget.setItem(row0, 0, QTableWidgetItem(y))
+                row0 += 1
+            for z in self.fileDateModified:
+                item = QtWidgets.QTableWidgetItem(z)
+                item.setFlags(QtCore.Qt.ItemIsDragEnabled | QtCore.Qt.ItemIsUserCheckable | QtCore.Qt.ItemIsEnabled)
+                self.abcTableWidget.setItem(row1, 1, item)
 
-    def REFRESH(self):
-        pass
+                row1 += 1
+            self.abcTableWidget.setShowGrid(False)
+        else:
+            self.abcTableWidget.setRowCount(0)
+            self.abcpathField.setText("Select a folder with ABCs....")
+            print("Path needs to pe specified")
+        # Make all rows and columns non-Editable
+        self.abcTableWidget.setEditTriggers(QtWidgets.QTableWidget.NoEditTriggers)
 
     def EXECUTE(self):
         self.selectedFiles = self.abcTableWidget.selectedIndexes()
@@ -172,23 +178,6 @@ class MainWindow(QtWidgets.QDialog):
         self.label.setObjectName("label")
         self.horizontalLayout.addWidget(self.label)
         self.main.addWidget(self.widgetNameWidget, 0, QtCore.Qt.AlignHCenter)
-        self.refreshWidget = QtWidgets.QWidget(self)
-        self.refreshWidget.setMaximumSize(QtCore.QSize(16777215, 40))
-        self.refreshWidget.setObjectName("refreshWidget")
-        self.horizontalLayout_16 = QtWidgets.QHBoxLayout(self.refreshWidget)
-        self.horizontalLayout_16.setContentsMargins(-1, 0, -1, 0)
-        self.horizontalLayout_16.setSpacing(0)
-        self.horizontalLayout_16.setObjectName("horizontalLayout_16")
-        self.refreshBtn = QtWidgets.QPushButton(self.refreshWidget)
-        self.refreshBtn.setMaximumSize(QtCore.QSize(16777215, 16777215))
-        font1 = QtGui.QFont()
-        font1.setPointSize(12)
-        font1.setBold(True)
-        font1.setWeight(75)
-        self.refreshBtn.setFont(font1)
-        self.refreshBtn.setObjectName("refreshBtn")
-        self.horizontalLayout_16.addWidget(self.refreshBtn)
-        self.main.addWidget(self.refreshWidget)
         self.pathWidget = QtWidgets.QWidget(self)
         self.pathWidget.setMaximumSize(QtCore.QSize(16777215, 50))
         self.pathWidget.setObjectName("pathWidget")
@@ -362,7 +351,6 @@ class MainWindow(QtWidgets.QDialog):
         _translate = QtCore.QCoreApplication.translate
         self.setWindowTitle(_translate("Form", "Bulk Alembic Importer v1.1.0"))
         self.label.setText(_translate("Form", "Bulk Alembic Importer v1.1.0"))
-        self.refreshBtn.setText(_translate("Form", "Refresh UI"))
         self.selectFolderBtn.setText(_translate("Form", "Select Folder"))
         self.abcpathField.setPlaceholderText(_translate("Form", "ABC path.............."))
         item = self.abcTableWidget.horizontalHeaderItem(0)
