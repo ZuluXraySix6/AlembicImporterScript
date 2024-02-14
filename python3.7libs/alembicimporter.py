@@ -1,14 +1,14 @@
-from PySide2 import QtWidgets
 import time
-from PySide2 import QtCore, QtGui
-from PySide2.QtWidgets import QApplication, QWidget, QAbstractItemView
-from PySide2.QtCore import *
-from PySide2.QtGui import *
-from PySide2.QtWidgets import *
+from PySide2 import QtCore
+from PySide2 import QtWidgets
 import hou
 import os
 import sys
 import datetime as datetime
+import toolutils
+from PySide2.QtWidgets import *
+
+global myWindow
 
 
 class MainWindow(QtWidgets.QDialog):
@@ -20,10 +20,13 @@ class MainWindow(QtWidgets.QDialog):
         self.fileDateModified = []
         self.selectedFiles = []
         self.node_for_network_box = []
+        self.camera_for_networkbox = []
+        self.camera_files = []
         self.mainWindow()
         # Set columns widths
-        self.abcTableWidget.setColumnWidth(0, 200)
-        self.abcTableWidget.setColumnWidth(1, 150)
+        self.abcTableWidget.setColumnWidth(0, 180)
+        self.abcTableWidget.setColumnWidth(1, 100)
+        self.abcTableWidget.setColumnWidth(2, 150)
         self.ALL_BUTTONS()
 
     def ALL_BUTTONS(self):
@@ -32,10 +35,15 @@ class MainWindow(QtWidgets.QDialog):
         self.cancelBtn.clicked.connect(self.close)
 
     def SET_ABC_PATH(self):
-        self.abcFileList = []
         self.abcPath = hou.ui.selectFile(title="Select folder containing alembic files",
                                          file_type=hou.fileType.Directory)
         if self.abcPath:
+            self.abcFileList.clear()
+            self.fileDateModified.clear()
+            self.selectedFiles.clear()
+            self.node_for_network_box.clear()
+            self.camera_for_networkbox.clear()
+            self.camera_files.clear()
             self.abcpathField.setText(self.abcPath)
             fileList = os.listdir(self.abcPath)
             for x in fileList:
@@ -47,80 +55,147 @@ class MainWindow(QtWidgets.QDialog):
                     self.fileDateModified.append(fileDate)
             self.abcTableWidget.setRowCount(len(self.abcFileList))
             row0 = 0
-            row1 = 0
+            row2 = 0
             for y in self.abcFileList:
                 self.abcTableWidget.setItem(row0, 0, QTableWidgetItem(y))
+                # Look for camera files among the alembic files
+                file_name = y.lower()
+                if "cam" in file_name:
+                    self.camera_files.append(y)
+                    item = QtWidgets.QTableWidgetItem("Archive Camera")
+                    item.setFlags(QtCore.Qt.ItemIsDragEnabled | QtCore.Qt.ItemIsUserCheckable | QtCore.Qt.ItemIsEnabled)
+                    self.abcTableWidget.setItem(row0, 1, item)
+                else:
+                    item = QtWidgets.QTableWidgetItem("File")
+                    item.setFlags(QtCore.Qt.ItemIsDragEnabled | QtCore.Qt.ItemIsUserCheckable | QtCore.Qt.ItemIsEnabled)
+                    self.abcTableWidget.setItem(row0, 1, item)
                 row0 += 1
             for z in self.fileDateModified:
                 item = QtWidgets.QTableWidgetItem(z)
                 item.setFlags(QtCore.Qt.ItemIsDragEnabled | QtCore.Qt.ItemIsUserCheckable | QtCore.Qt.ItemIsEnabled)
-                self.abcTableWidget.setItem(row1, 1, item)
-
-                row1 += 1
+                self.abcTableWidget.setItem(row2, 2, item)
+                row2 += 1
             self.abcTableWidget.setShowGrid(False)
         else:
+            self.abcPath = ""
+            self.abcFilePath = ""
+            self.abcFileList.clear()
+            self.fileDateModified.clear()
+            self.selectedFiles.clear()
+            self.node_for_network_box.clear()
+            self.camera_for_networkbox.clear()
+            self.camera_files.clear()
             self.abcTableWidget.setRowCount(0)
             self.abcpathField.setText("Select a folder with ABCs....")
             print("Path needs to pe specified")
         # Make all rows and columns non-Editable
         self.abcTableWidget.setEditTriggers(QtWidgets.QTableWidget.NoEditTriggers)
+        total_cam_files = len(self.camera_files)
+        if total_cam_files > 0:
+            hou.ui.displayMessage("Seems like we found some camera/cameras in the folder." + "\nTotal : " + str(
+                total_cam_files) + "." + "\nIf imported, will be imported as Alembic Archives. So Chill.")
+        # self.camera_files.clear()
 
     def EXECUTE(self):
+        cam_netbox_size = 0
         self.selectedFiles = self.abcTableWidget.selectedIndexes()
         for x in self.selectedFiles:
-            checkedNodes = []
-            # We are calling the index values from the List "selectedFiles" and then using those
-            # for ABC files that are selected.
-            current_file = self.abcFileList[x.row()]
-            geoNode = hou.node("/obj/").createNode("geo", "ABC_" + current_file)
-            geoNode.setColor(hou.Color(0, 0, 0))
-            geoNode.setSelectableInViewport(False)
-            self.node_for_network_box.append(geoNode)
-            abcNode = geoNode.createNode("alembic", "ABC_" + current_file)
-            self.abcFilePath = self.abcPath + current_file + ".abc"
-            abcNode.parm("fileName").set(self.abcFilePath)
-            if self.chkBxAddTransform.isChecked():
-                transformNode = geoNode.createNode("xform")
-                checkedNodes.append(transformNode)
-            if self.chkBxAddConvert.isChecked():
-                convertNode = geoNode.createNode("convert")
-                checkedNodes.append(convertNode)
-            if self.chkBxAddNormal.isChecked():
-                normalNode = geoNode.createNode("normal")
-                checkedNodes.append(normalNode)
-            if self.chkBxAddFileCache.isChecked():
-                fileNode = geoNode.createNode("filecache", "GEO_" + current_file)
-                fileNode.parm("basename").set("$OS")
-                checkedNodes.append(fileNode)
-            # Just connect one node to another after they are created.
-            if len(checkedNodes) > 0:
-                for item in checkedNodes:
-                    if item == checkedNodes[0]:
-                        item.setInput(0, abcNode)
-                        continue
-                    item.setInput(0, checkedNodes[checkedNodes.index(item) - 1])
-                    if item == checkedNodes[(len(checkedNodes) - 1)]:
-                        nullNode = geoNode.createNode("null", "OUT_" + current_file.upper())
-                        nullNode.setColor(hou.Color(0, 0, 0))
-                        nullNode.setGenericFlag(hou.nodeFlag.Render, 1)
-                        nullNode.setGenericFlag(hou.nodeFlag.Visible, 1)
-                        nullNode.setInput(0, item)
-                hou.node("/obj/" + "ABC_" + current_file).layoutChildren()
-            else:
-                nullNode = geoNode.createNode("null", "OUT_" + current_file.upper())
-                nullNode.setColor(hou.Color(0, 0, 0))
-                nullNode.setGenericFlag(hou.nodeFlag.Render, 1)
-                nullNode.setGenericFlag(hou.nodeFlag.Visible, 1)
-                nullNode.setInput(0, abcNode)
-                hou.node("/obj/" + "ABC_" + current_file).layoutChildren()
-        hou.node("/obj/").layoutChildren(items=self.node_for_network_box, horizontal_spacing=1.5, vertical_spacing=.5)
-        # Create a Network Box and add geo nodes into it...
-        box = hou.node("/obj").createNetworkBox()
-        for node in self.node_for_network_box:
-            box.addItem(node)
-        box.fitAroundContents()
-        box.setColor(hou.Color(0, 0, 0))
+            camFile = self.abcFileList[x.row()]
+            file_name = camFile.lower()
+            if "cam" in file_name:
+                camNode = hou.node("/obj/").createNode("alembicarchive", "ABC_CAM_" + file_name)
+                camPath = self.abcPath + file_name + ".abc"
+                camNode.parm("fileName").set(camPath)
+                # Build or Update Hierarchy on the Camera Node
+                camNode.parm("buildHierarchy").pressButton()
+                camNode.setColor(hou.Color(1, 0, 0))
+                camNode.setGenericFlag(hou.nodeFlag.Visible, 0)
+                camNode.setGenericFlag(hou.nodeFlag.Selectable, 0)
+                self.camera_for_networkbox.append(camNode)
+        if len(self.camera_for_networkbox) > 0:
+            # Create a Network Box and add camera into it...
+            camLayout = hou.node("/obj/").layoutChildren(items=self.node_for_network_box, horizontal_spacing=1.5,
+                                                         vertical_spacing=1)
+            cam_box = hou.node("/obj").createNetworkBox("Camera")
+            cam_box.setComment("ABC Camera")
+            for cam in self.camera_for_networkbox:
+                cam_box.addItem(cam)
+            cam_box.fitAroundContents()
+            cam_box.setColor(hou.Color(0, 0, 0))
+            # Camera Network Box Size
+            cam_netbox_size = cam_box.size()[0]
 
+        for current_file in self.selectedFiles:
+            checkedNodes = []
+            file_name = self.abcFileList[current_file.row()]
+            if "cam" not in file_name:
+                # We are calling the index values from the List "selectedFiles" and then using those
+                # for ABC files that are selected.
+                geoNode = hou.node("/obj/").createNode("geo", "ABC_" + file_name)
+                geoNode.setColor(hou.Color(0, 0, 0))
+                geoNode.setSelectableInViewport(False)
+                self.node_for_network_box.append(geoNode)
+                abcNode = geoNode.createNode("alembic", "ABC_" + file_name)
+                self.abcFilePath = self.abcPath + file_name + ".abc"
+                abcNode.parm("fileName").set(self.abcFilePath)
+                if self.chkBxAddTransform.isChecked():
+                    transformNode = geoNode.createNode("xform")
+                    checkedNodes.append(transformNode)
+                if self.chkBxAddConvert.isChecked():
+                    convertNode = geoNode.createNode("convert")
+                    checkedNodes.append(convertNode)
+                if self.chkBxAddNormal.isChecked():
+                    normalNode = geoNode.createNode("normal")
+                    checkedNodes.append(normalNode)
+                if self.chkBxAddFileCache.isChecked():
+                    fileNode = geoNode.createNode("filecache", "GEO_" + file_name)
+                    fileNode.parm("basename").set("$OS")
+                    checkedNodes.append(fileNode)
+                # Just connect one node to another after they are created.
+                if len(checkedNodes) > 0:
+                    for item in checkedNodes:
+                        if item == checkedNodes[0]:
+                            item.setInput(0, abcNode)
+                            continue
+                        item.setInput(0, checkedNodes[checkedNodes.index(item) - 1])
+                        if item == checkedNodes[(len(checkedNodes) - 1)]:
+                            nullNode = geoNode.createNode("null", "OUT_" + file_name.upper())
+                            nullNode.setColor(hou.Color(0, 0, 0))
+                            nullNode.setGenericFlag(hou.nodeFlag.Render, 1)
+                            nullNode.setGenericFlag(hou.nodeFlag.Visible, 1)
+                            nullNode.setInput(0, item)
+                    hou.node("/obj/" + "ABC_" + file_name).layoutChildren()
+                else:
+                    nullNode = geoNode.createNode("null", "OUT_" + file_name.upper())
+                    nullNode.setColor(hou.Color(0, 0, 0))
+                    nullNode.setGenericFlag(hou.nodeFlag.Render, 1)
+                    nullNode.setGenericFlag(hou.nodeFlag.Visible, 1)
+                    nullNode.setInput(0, abcNode)
+                    hou.node("/obj/" + "ABC_" + file_name).layoutChildren()
+        if len(self.node_for_network_box) > 0:
+            nodeLayout = hou.node("/obj/").layoutChildren(items=self.node_for_network_box, horizontal_spacing=3,
+                                                          vertical_spacing=.5)
+            # Create a Network Box and add geo nodes into it...
+            box = hou.node("/obj").createNetworkBox("Nodes")
+            box.setComment("ABC Files")
+            for node in self.node_for_network_box:
+                box.addItem(node)
+            box.fitAroundContents()
+            box.setColor(hou.Color(0, 0, 0))
+            # Move the networkbox below the CAMERA networkbox
+            cam_netbox_size = box.position()[0] + cam_netbox_size
+            box.move(hou.Vector2(cam_netbox_size * 2.5, 0))
+            box_size = box.size()
+            box.resize(hou.Vector2(0.5, 0.5))
+
+        # Set the camera view of the imported Camera
+        cameras = hou.nodeType(hou.objNodeTypeCategory(), "cam").instances()
+        if len(cameras) > 0:
+            desktop = hou.ui.curDesktop()
+            sceneViewer = desktop.paneTabOfType(hou.paneTabType.SceneViewer)
+            viewPort = sceneViewer.curViewport()
+            viewPort.setCamera(cameras[0].path())
+        self.close()
     def mainWindow(self):
         self.setWindowTitle("Alembic Importer")
         self.setMinimumSize(QSize(550, 650))
@@ -202,7 +277,6 @@ class MainWindow(QtWidgets.QDialog):
         self.horizontalLayout_19.setSpacing(0)
         self.horizontalLayout_19.setObjectName("horizontalLayout_19")
         self.abcpathField = QtWidgets.QLineEdit(self.widget_14)
-        self.abcpathField.setInputMask("")
         self.abcpathField.setObjectName("abcpathField")
         self.horizontalLayout_19.addWidget(self.abcpathField)
         self.horizontalLayout_17.addWidget(self.widget_14)
@@ -213,12 +287,14 @@ class MainWindow(QtWidgets.QDialog):
         self.horizontalLayout_20.setObjectName("horizontalLayout_20")
         self.abcTableWidget = QtWidgets.QTableWidget(self.tableWidget)
         self.abcTableWidget.setObjectName("abcTableWidget")
-        self.abcTableWidget.setColumnCount(2)
+        self.abcTableWidget.setColumnCount(3)
         self.abcTableWidget.setRowCount(0)
         item = QtWidgets.QTableWidgetItem()
         self.abcTableWidget.setHorizontalHeaderItem(0, item)
         item = QtWidgets.QTableWidgetItem()
         self.abcTableWidget.setHorizontalHeaderItem(1, item)
+        item = QtWidgets.QTableWidgetItem()
+        self.abcTableWidget.setHorizontalHeaderItem(2, item)
         self.horizontalLayout_20.addWidget(self.abcTableWidget)
         self.main.addWidget(self.tableWidget)
         self.sopsWidget = QtWidgets.QWidget(self)
@@ -357,6 +433,8 @@ class MainWindow(QtWidgets.QDialog):
         item.setText(_translate("Form", "ABC Files"))
         item = self.abcTableWidget.horizontalHeaderItem(1)
         item.setText(_translate("Form", "File Type"))
+        item = self.abcTableWidget.horizontalHeaderItem(2)
+        item.setText(_translate("Form", "Date Modified"))
         self.chkBxIncludeSubfolders.setText(_translate("Form", "Include SubFolders"))
         self.chkBxAddTransform.setText(_translate("Form", "Add Transform"))
         self.chkBxAddConvert.setText(_translate("Form", "Add Convert"))
@@ -366,5 +444,9 @@ class MainWindow(QtWidgets.QDialog):
         self.cancelBtn.setText(_translate("Form", "Cancel"))
 
 
-dialog = MainWindow()
-dialog.show()
+try:
+    myWindow.close()
+except:
+    pass
+myWindow = MainWindow()
+myWindow.show()
