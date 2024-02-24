@@ -1,11 +1,12 @@
 import time
-from PySide2 import QtCore
+from PySide2 import QtCore, QtGui
 from PySide2 import QtWidgets
 import hou
 import os
 import sys
 import datetime as datetime
 import toolutils
+from PySide2.QtCore import *
 from PySide2.QtWidgets import *
 
 global myWindow
@@ -23,6 +24,7 @@ class MainWindow(QtWidgets.QDialog):
         self.camera_for_networkbox = []
         self.camera_files = []
         self.mainWindow()
+
         # Set columns widths
         self.abcTableWidget.setColumnWidth(0, 180)
         self.abcTableWidget.setColumnWidth(1, 100)
@@ -125,6 +127,7 @@ class MainWindow(QtWidgets.QDialog):
             # Camera Network Box Size
             cam_netbox_size = cam_box.size()[0]
 
+        # Create SOP Nodes for ABC_ containers
         for current_file in self.selectedFiles:
             checkedNodes = []
             file_name = self.abcFileList[current_file.row()]
@@ -158,12 +161,13 @@ class MainWindow(QtWidgets.QDialog):
                             item.setInput(0, abcNode)
                             continue
                         item.setInput(0, checkedNodes[checkedNodes.index(item) - 1])
-                        if item == checkedNodes[(len(checkedNodes) - 1)]:
-                            nullNode = geoNode.createNode("null", "OUT_" + file_name.upper())
-                            nullNode.setColor(hou.Color(0, 0, 0))
-                            nullNode.setGenericFlag(hou.nodeFlag.Render, 1)
-                            nullNode.setGenericFlag(hou.nodeFlag.Visible, 1)
-                            nullNode.setInput(0, item)
+                    #    if item == checkedNodes[(len(checkedNodes) - 1)]:
+                    #        print("Null is created")
+                    #        nullNode = geoNode.createNode("null", "OUT_" + file_name.upper())
+                    #        nullNode.setColor(hou.Color(0, 0, 0))
+                    #        nullNode.setGenericFlag(hou.nodeFlag.Render, 1)
+                    #        nullNode.setGenericFlag(hou.nodeFlag.Visible, 1)
+                    #        nullNode.setInput(0, item)
                     hou.node("/obj/" + "ABC_" + file_name).layoutChildren()
                 else:
                     nullNode = geoNode.createNode("null", "OUT_" + file_name.upper())
@@ -172,8 +176,61 @@ class MainWindow(QtWidgets.QDialog):
                     nullNode.setGenericFlag(hou.nodeFlag.Visible, 1)
                     nullNode.setInput(0, abcNode)
                     hou.node("/obj/" + "ABC_" + file_name).layoutChildren()
+
+                BUTTON_SCRIPT = """import hou\n
+def addNetBox():\n
+\tnames = hou.node("/obj/")\n
+\tfor name in names.glob("RENDER_*"):\n
+\t\tboxnodes.append(name)\n
+\tif len(boxnodes) > 0:\n
+\t\tnodeLayout = hou.node("/obj/").layoutChildren()\n
+\t\tboxN = hou.node("/obj/").createNetworkBox("renderNodes")\n
+\t\tboxN.setComment("RENDER NODES")\n
+\tfor node in boxnodes:\n
+\t\tboxN.addItem(node)\n
+\t\tboxN.fitAroundContents()\n
+\tboxN.setPosition(hou.Vector2(0, (abs(alembicNodeBoxPos[0])+abs(alembicNodeBoxSize[0] + 8)*-1)))\n
+\tboxN.setColor(hou.Color(0.5,0.5,0))\n
+nodeName = hou.pwd()\n
+nodeNameTrim = str(nodeName)[4:]\n
+geoNode = hou.node("/obj/").createNode("geo", "RENDER_" + nodeNameTrim)\n
+nodeName.setGenericFlag(hou.nodeFlag.Visible, 0)\n
+geoNode.setGenericFlag(hou.nodeFlag.Selectable, 0)\n
+geoNode.setColor(hou.Color(1, 0, 0))\n
+objMerge = geoNode.createNode("object_merge", "obj_merge_" + nodeNameTrim)\n
+objMerge.setColor(hou.Color(0,0,0))\n
+objMerge.parm("xformtype").set("local")\n
+objMerge.parm("objpath1").set("/obj/" + str(nodeName) + "/" + "OUT_" + nodeNameTrim.upper())\n
+boxN = hou.node("/obj/").findNetworkBox("renderNodes")\n
+alembicNodeBox = hou.node("/obj/").findNetworkBox("Nodes")\n
+alembicNodeBoxPos = alembicNodeBox.position()\n
+alembicNodeBoxSize = alembicNodeBox.size()\n
+boxnodes = []\n
+if boxN:\n
+\tboxN.destroy()\n
+\taddNetBox()\n
+else:\n
+\taddNetBox()"""
+                # Create button to create object merge SOPs. Firstly need to access parmTemplategroup function
+                # to access the existing parameters. Then we create a button param.
+                parmTemplate = geoNode.parmTemplateGroup()
+                buttonParm = hou.ButtonParmTemplate("objMergeButton",
+                                                    "Create Object Merge Nodes")
+                buttonParm.setScriptCallback(BUTTON_SCRIPT)
+                buttonParm.setScriptCallbackLanguage(hou.scriptLanguage.Python)
+                # Insert the button above the Transform Folder by taking the Transform Folder's Index
+                separatorParm1 = hou.SeparatorParmTemplate("sep1")
+                separatorParm1.setLabel("sep1")
+                separatorParm2 = hou.SeparatorParmTemplate("sep2")
+                separatorParm2.setLabel("sep2")
+                parmTemplate.insertBefore((0,), buttonParm)
+                parmTemplate.insertBefore((0,), separatorParm1)
+                parmTemplate.insertAfter((1,), separatorParm2)
+                # First u insert the parameter then u setParmTemplateGroup. Else it wont work...
+                geoNode.setParmTemplateGroup(parmTemplate)
+
         if len(self.node_for_network_box) > 0:
-            nodeLayout = hou.node("/obj/").layoutChildren(items=self.node_for_network_box, horizontal_spacing=3,
+            nodeLayout = hou.node("/obj/").layoutChildren(items=self.node_for_network_box, horizontal_spacing=2,
                                                           vertical_spacing=.5)
             # Create a Network Box and add geo nodes into it...
             box = hou.node("/obj").createNetworkBox("Nodes")
@@ -188,6 +245,49 @@ class MainWindow(QtWidgets.QDialog):
             box_size = box.size()
             box.resize(hou.Vector2(0.5, 0.5))
 
+        # Add nulls on obj context for SCALE and CONNECT all other nodes to it....
+        if self.selectedFiles:
+            nullSop = hou.node("/obj/").createNode("null", "scene_SCALE")
+            nullSop.setGenericFlag(hou.nodeFlag.Selectable, 0)
+            nullSop.setGenericFlag(hou.nodeFlag.Visible, 0)
+            nullSop.setColor(hou.Color(0, 0, 0))
+            sceneScaleBox = hou.node("obj/").createNetworkBox("Scene_Scale")
+            sceneScaleBox.setComment("Main Scene Scale")
+            sceneScaleBox.setColor(hou.Color(0, 0, 0))
+            sceneScaleBox.addItem(nullSop)
+            for items in self.selectedFiles:
+                file_name = self.abcFileList[items.row()]
+                # We have to separate the cameras because they have a diff naming convention " ABC_CAM_"
+                if "cam" in file_name:
+                    file_name = hou.node("obj/" + "ABC_CAM_" + file_name)
+                    file_name.setInput(0, nullSop)
+                else:
+                    file_name = hou.node("obj/" + "ABC_" + file_name)
+                    ref_path = "ch(\"../scene_SCALE/"
+                    # Uniform Scale
+                    file_name.parm("scale").setExpression(ref_path + "scale\")")
+                    # Translate
+                    file_name.parmTuple("t")[0].setExpression(ref_path + "tx\")")
+                    file_name.parmTuple("t")[1].setExpression(ref_path + "ty\")")
+                    file_name.parmTuple("t")[2].setExpression(ref_path + "tz\")")
+                    # Rotation
+                    file_name.parmTuple("r")[0].setExpression(ref_path + "rx\")")
+                    file_name.parmTuple("r")[1].setExpression(ref_path + "ry\")")
+                    file_name.parmTuple("r")[2].setExpression(ref_path + "rz\")")
+                    # Scaling
+                    file_name.parmTuple("s")[0].setExpression(ref_path + "sx\")")
+                    file_name.parmTuple("s")[1].setExpression(ref_path + "sy\")")
+                    file_name.parmTuple("s")[2].setExpression(ref_path + "sz\")")
+            # Get Camera NetWorkBox Position and move the null "scene_SCALE" above it
+            cameraNetWorkBox = hou.node("obj/").findNetworkBox("Camera")
+            nodesNetWorkBox = hou.node("obj/").findNetworkBox("Nodes")
+            if cameraNetWorkBox:
+                cameraNetWorkBoxPos = cameraNetWorkBox.position()
+                sceneScaleBox.setPosition(hou.Vector2(cameraNetWorkBoxPos[0], abs(cameraNetWorkBoxPos[1]) + 1))
+            else:
+                nodesNetWorkBoxPos = nodesNetWorkBox.position()
+                sceneScaleBox.setPosition(hou.Vector2(nodesNetWorkBoxPos[0], abs(nodesNetWorkBoxPos[1]) + 1))
+
         # Set the camera view of the imported Camera
         cameras = hou.nodeType(hou.objNodeTypeCategory(), "cam").instances()
         if len(cameras) > 0:
@@ -196,6 +296,7 @@ class MainWindow(QtWidgets.QDialog):
             viewPort = sceneViewer.curViewport()
             viewPort.setCamera(cameras[0].path())
         self.close()
+
     def mainWindow(self):
         self.setWindowTitle("Alembic Importer")
         self.setMinimumSize(QSize(550, 650))
@@ -316,9 +417,9 @@ class MainWindow(QtWidgets.QDialog):
         self.horizontalLayout_10.setContentsMargins(0, 0, 0, 0)
         self.horizontalLayout_10.setSpacing(0)
         self.horizontalLayout_10.setObjectName("horizontalLayout_10")
-        self.chkBxIncludeSubfolders = QtWidgets.QCheckBox(self.widget_7)
-        self.chkBxIncludeSubfolders.setObjectName("chkBxIncludeSubfolders")
-        self.horizontalLayout_10.addWidget(self.chkBxIncludeSubfolders)
+        self.chkBxAddNull = QtWidgets.QCheckBox(self.widget_7)
+        self.chkBxAddNull.setObjectName("chkBxAddNull")
+        self.horizontalLayout_10.addWidget(self.chkBxAddNull)
         self.horizontalLayout_9.addWidget(self.widget_7)
         self.horizontalLayout_5.addWidget(self.widget_3)
         self.widget_4 = QtWidgets.QWidget(self.sopsWidget)
@@ -435,7 +536,7 @@ class MainWindow(QtWidgets.QDialog):
         item.setText(_translate("Form", "File Type"))
         item = self.abcTableWidget.horizontalHeaderItem(2)
         item.setText(_translate("Form", "Date Modified"))
-        self.chkBxIncludeSubfolders.setText(_translate("Form", "Include SubFolders"))
+        self.chkBxAddNull.setText(_translate("Form", "Create NULL Node"))
         self.chkBxAddTransform.setText(_translate("Form", "Add Transform"))
         self.chkBxAddConvert.setText(_translate("Form", "Add Convert"))
         self.chkBxAddNormal.setText(_translate("Form", "Add Normal"))
