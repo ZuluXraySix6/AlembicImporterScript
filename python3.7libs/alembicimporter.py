@@ -96,10 +96,10 @@ class MainWindow(QtWidgets.QDialog):
         if total_cam_files > 0:
             hou.ui.displayMessage("Seems like we found some camera/cameras in the folder." + "\nTotal : " + str(
                 total_cam_files) + "." + "\nIf imported, will be imported as Alembic Archives. So Chill.")
-        # self.camera_files.clear()
 
     def EXECUTE(self):
         cam_netbox_size = 0
+        cam_box = None
         self.selectedFiles = self.abcTableWidget.selectedIndexes()
         for x in self.selectedFiles:
             camFile = self.abcFileList[x.row()]
@@ -114,16 +114,34 @@ class MainWindow(QtWidgets.QDialog):
                 camNode.setGenericFlag(hou.nodeFlag.Visible, 0)
                 camNode.setGenericFlag(hou.nodeFlag.Selectable, 0)
                 self.camera_for_networkbox.append(camNode)
+
         if len(self.camera_for_networkbox) > 0:
-            # Create a Network Box and add camera into it...
-            camLayout = hou.node("/obj/").layoutChildren(items=self.node_for_network_box, horizontal_spacing=1.5,
-                                                         vertical_spacing=1)
-            cam_box = hou.node("/obj").createNetworkBox("Camera")
-            cam_box.setComment("ABC Camera")
-            for cam in self.camera_for_networkbox:
-                cam_box.addItem(cam)
+            cam_box = hou.node("/obj/").findNetworkBox("Camera")  # Find Camera Box if it already exists
+            all_cameras = []  # Store Cameras here from the scene
+            if cam_box:
+                # If CameraBox Exists
+                cam_box.destroy()
+                # Write Code for appending cameras and creating another NetworkBox
+                cam_names = hou.node("obj/")
+                for cam in cam_names.glob("ABC_CAM_*"):
+                    all_cameras.append(cam)
+                if all_cameras:
+                    camLay = hou.node("/obj/").layoutChildren(items=all_cameras, horizontal_spacing=1.5,
+                                                              vertical_spacing=1)
+                    cam_box = hou.node("/obj").createNetworkBox("Camera")
+                    cam_box.setComment("ABC Camera")
+                    for cam in all_cameras:
+                        cam_box.addItem(cam)
+            else:
+                camLay = hou.node("/obj/").layoutChildren(items=self.node_for_network_box, horizontal_spacing=1.5,
+                                                          vertical_spacing=1)
+                cam_box = hou.node("/obj").createNetworkBox("Camera")
+                cam_box.setComment("ABC Camera")
+                for cam in self.camera_for_networkbox:
+                    cam_box.addItem(cam)
             cam_box.fitAroundContents()
             cam_box.setColor(hou.Color(0, 0, 0))
+
             # Camera Network Box Size
             cam_netbox_size = cam_box.size()[0]
 
@@ -152,28 +170,32 @@ class MainWindow(QtWidgets.QDialog):
                     checkedNodes.append(normalNode)
                 if self.chkBxAddFileCache.isChecked():
                     fileNode = geoNode.createNode("filecache", "GEO_" + file_name)
+                    fileNode.parm("cachesim").set("0")
                     fileNode.parm("basename").set("$OS")
                     checkedNodes.append(fileNode)
+                # Create Null node for ABC and filecaches
+                nullNode = geoNode.createNode("null", "OUT_" + file_name.upper())
+                nullNode.setColor(hou.Color(0, 0, 0))
+                nullNode.setGenericFlag(hou.nodeFlag.Render, 1)
+                nullNode.setGenericFlag(hou.nodeFlag.Visible, 1)
                 # Just connect one node to another after they are created.
-                if len(checkedNodes) > 0:
-                    for item in checkedNodes:
+                for item in checkedNodes:
+                    if len(checkedNodes) > 1:
                         if item == checkedNodes[0]:
                             item.setInput(0, abcNode)
                             continue
                         item.setInput(0, checkedNodes[checkedNodes.index(item) - 1])
-                    #    if item == checkedNodes[(len(checkedNodes) - 1)]:
-                    #        print("Null is created")
-                    #        nullNode = geoNode.createNode("null", "OUT_" + file_name.upper())
-                    #        nullNode.setColor(hou.Color(0, 0, 0))
-                    #        nullNode.setGenericFlag(hou.nodeFlag.Render, 1)
-                    #        nullNode.setGenericFlag(hou.nodeFlag.Visible, 1)
-                    #        nullNode.setInput(0, item)
-                    hou.node("/obj/" + "ABC_" + file_name).layoutChildren()
-                else:
-                    nullNode = geoNode.createNode("null", "OUT_" + file_name.upper())
-                    nullNode.setColor(hou.Color(0, 0, 0))
-                    nullNode.setGenericFlag(hou.nodeFlag.Render, 1)
-                    nullNode.setGenericFlag(hou.nodeFlag.Visible, 1)
+                        if item == checkedNodes[(len(checkedNodes) - 1)]:
+                            nullNode.setInput(0, item)
+                        hou.node("/obj/" + "ABC_" + file_name).layoutChildren()
+                    elif len(checkedNodes) == 1:
+                        print("1 sop clicked")
+                        item.setInput(0, abcNode)
+                        nullNode.setInput(0, checkedNodes[0])
+                        hou.node("/obj/" + "ABC_" + file_name).layoutChildren()
+                # Check if there are no nodes Selected while creating the ABC nodes then
+                # Null connects directly to the alembic node
+                if not checkedNodes:
                     nullNode.setInput(0, abcNode)
                     hou.node("/obj/" + "ABC_" + file_name).layoutChildren()
 
@@ -189,7 +211,7 @@ def addNetBox():\n
 \tfor node in boxnodes:\n
 \t\tboxN.addItem(node)\n
 \t\tboxN.fitAroundContents()\n
-\tboxN.setPosition(hou.Vector2(0, (abs(alembicNodeBoxPos[0])+abs(alembicNodeBoxSize[0] + 8)*-1)))\n
+\tboxN.setPosition(hou.Vector2(0, (alembicNodeBoxSize[0]*-1)))\n
 \tboxN.setColor(hou.Color(0.5,0.5,0))\n
 nodeName = hou.pwd()\n
 nodeNameTrim = str(nodeName)[4:]\n
@@ -203,7 +225,6 @@ objMerge.parm("xformtype").set("local")\n
 objMerge.parm("objpath1").set("/obj/" + str(nodeName) + "/" + "OUT_" + nodeNameTrim.upper())\n
 boxN = hou.node("/obj/").findNetworkBox("renderNodes")\n
 alembicNodeBox = hou.node("/obj/").findNetworkBox("Nodes")\n
-alembicNodeBoxPos = alembicNodeBox.position()\n
 alembicNodeBoxSize = alembicNodeBox.size()\n
 boxnodes = []\n
 if boxN:\n
@@ -284,9 +305,11 @@ else:\n
             if cameraNetWorkBox:
                 cameraNetWorkBoxPos = cameraNetWorkBox.position()
                 sceneScaleBox.setPosition(hou.Vector2(cameraNetWorkBoxPos[0], abs(cameraNetWorkBoxPos[1]) + 1))
+                sceneScaleBox.fitAroundContents()
             else:
                 nodesNetWorkBoxPos = nodesNetWorkBox.position()
                 sceneScaleBox.setPosition(hou.Vector2(nodesNetWorkBoxPos[0], abs(nodesNetWorkBoxPos[1]) + 1))
+                sceneScaleBox.fitAroundContents()
 
         # Set the camera view of the imported Camera
         cameras = hou.nodeType(hou.objNodeTypeCategory(), "cam").instances()
@@ -295,6 +318,7 @@ else:\n
             sceneViewer = desktop.paneTabOfType(hou.paneTabType.SceneViewer)
             viewPort = sceneViewer.curViewport()
             viewPort.setCamera(cameras[0].path())
+
         self.close()
 
     def mainWindow(self):
