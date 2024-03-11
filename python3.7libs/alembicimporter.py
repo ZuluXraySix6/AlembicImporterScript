@@ -98,8 +98,10 @@ class MainWindow(QtWidgets.QDialog):
                 total_cam_files) + "." + "\nIf imported, will be imported as Alembic Archives. So Chill.")
 
     def EXECUTE(self):
+        root_path = hou.node("obj/")
         cam_netbox_size = 0
-        cam_box = None
+        all_cameras = []  # Store Cameras here from the scene
+        all_nodes = []
         self.selectedFiles = self.abcTableWidget.selectedIndexes()
         for x in self.selectedFiles:
             camFile = self.abcFileList[x.row()]
@@ -114,17 +116,14 @@ class MainWindow(QtWidgets.QDialog):
                 camNode.setGenericFlag(hou.nodeFlag.Visible, 0)
                 camNode.setGenericFlag(hou.nodeFlag.Selectable, 0)
                 self.camera_for_networkbox.append(camNode)
-
         if len(self.camera_for_networkbox) > 0:
             cam_box = hou.node("/obj/").findNetworkBox("Camera")  # Find Camera Box if it already exists
-            all_cameras = []  # Store Cameras here from the scene
+            # Write Code for appending cameras and creating another NetworkBox
+            for cam in root_path.glob("ABC_CAM_*"):
+                all_cameras.append(cam)
             if cam_box:
                 # If CameraBox Exists
                 cam_box.destroy()
-                # Write Code for appending cameras and creating another NetworkBox
-                cam_names = hou.node("obj/")
-                for cam in cam_names.glob("ABC_CAM_*"):
-                    all_cameras.append(cam)
                 if all_cameras:
                     camLay = hou.node("/obj/").layoutChildren(items=all_cameras, horizontal_spacing=1.5,
                                                               vertical_spacing=1)
@@ -133,11 +132,11 @@ class MainWindow(QtWidgets.QDialog):
                     for cam in all_cameras:
                         cam_box.addItem(cam)
             else:
-                camLay = hou.node("/obj/").layoutChildren(items=self.node_for_network_box, horizontal_spacing=1.5,
+                camLay = hou.node("/obj/").layoutChildren(items=all_cameras, horizontal_spacing=1.5,
                                                           vertical_spacing=1)
                 cam_box = hou.node("/obj").createNetworkBox("Camera")
                 cam_box.setComment("ABC Camera")
-                for cam in self.camera_for_networkbox:
+                for cam in all_cameras:
                     cam_box.addItem(cam)
             cam_box.fitAroundContents()
             cam_box.setColor(hou.Color(0, 0, 0))
@@ -189,7 +188,6 @@ class MainWindow(QtWidgets.QDialog):
                             nullNode.setInput(0, item)
                         hou.node("/obj/" + "ABC_" + file_name).layoutChildren()
                     elif len(checkedNodes) == 1:
-                        print("1 sop clicked")
                         item.setInput(0, abcNode)
                         nullNode.setInput(0, checkedNodes[0])
                         hou.node("/obj/" + "ABC_" + file_name).layoutChildren()
@@ -250,58 +248,81 @@ else:\n
                 # First u insert the parameter then u setParmTemplateGroup. Else it wont work...
                 geoNode.setParmTemplateGroup(parmTemplate)
 
-        if len(self.node_for_network_box) > 0:
-            nodeLayout = hou.node("/obj/").layoutChildren(items=self.node_for_network_box, horizontal_spacing=2,
-                                                          vertical_spacing=.5)
-            # Create a Network Box and add geo nodes into it...
-            box = hou.node("/obj").createNetworkBox("Nodes")
-            box.setComment("ABC Files")
-            for node in self.node_for_network_box:
-                box.addItem(node)
+        if self.node_for_network_box:
+            # Write Code for appending cameras and creating another NetworkBox
+            findbox = hou.node("/obj/").findNetworkBox("Nodes")  # Find Nodes Box if it already exists
+            for node in root_path.glob("ABC_*"):
+                if "CAM" in str(node):
+                    continue
+                else:
+                    all_nodes.append(node)
+            if findbox:
+                # If Nodes Box Exists
+                findbox.destroy()
+                if all_nodes:
+                    nodeLayout = hou.node("/obj/").layoutChildren(items=all_nodes, horizontal_spacing=2,
+                                                                  vertical_spacing=.5)
+                    # Create a Network Box and add geo nodes into it...
+                    box = hou.node("/obj").createNetworkBox("Nodes")
+                    box.setComment("ABC Files")
+                    for abcnode in all_nodes:
+                        box.addItem(abcnode)
+            else:
+                nodeLayout = hou.node("/obj/").layoutChildren(items=all_nodes, horizontal_spacing=2,
+                                                              vertical_spacing=.5)
+                # Create a Network Box and add geo nodes into it...
+                box = hou.node("/obj").createNetworkBox("Nodes")
+                box.setComment("ABC Files")
+                for abcnode in all_nodes:
+                    box.addItem(abcnode)
+                    # Move the networkbox below the CAMERA networkbox
+                cam_netbox_size = box.position()[0] + cam_netbox_size
+                box.move(hou.Vector2(cam_netbox_size * 2.5, 0))
             box.fitAroundContents()
             box.setColor(hou.Color(0, 0, 0))
-            # Move the networkbox below the CAMERA networkbox
-            cam_netbox_size = box.position()[0] + cam_netbox_size
-            box.move(hou.Vector2(cam_netbox_size * 2.5, 0))
-            box_size = box.size()
-            box.resize(hou.Vector2(0.5, 0.5))
 
         # Add nulls on obj context for SCALE and CONNECT all other nodes to it....
         if self.selectedFiles:
-            nullSop = hou.node("/obj/").createNode("null", "scene_SCALE")
-            nullSop.setGenericFlag(hou.nodeFlag.Selectable, 0)
-            nullSop.setGenericFlag(hou.nodeFlag.Visible, 0)
-            nullSop.setColor(hou.Color(0, 0, 0))
-            sceneScaleBox = hou.node("obj/").createNetworkBox("Scene_Scale")
-            sceneScaleBox.setComment("Main Scene Scale")
-            sceneScaleBox.setColor(hou.Color(0, 0, 0))
-            sceneScaleBox.addItem(nullSop)
-            for items in self.selectedFiles:
-                file_name = self.abcFileList[items.row()]
+            # Checking if a scene_SCALE null already exists
+            all_nulls = root_path.glob("scene_SCALE")
+            if all_nulls:
+                if all_cameras:
+                    for cam in all_cameras:
+                        cam.setInput(0, all_nulls[0])
+            else:
+                nullSop = hou.node("/obj/").createNode("null", "scene_SCALE")
+                nullSop.setGenericFlag(hou.nodeFlag.Selectable, 0)
+                nullSop.setGenericFlag(hou.nodeFlag.Visible, 0)
+                nullSop.setColor(hou.Color(0, 0, 0))
+                sceneScaleBox = hou.node("obj/").createNetworkBox("Scene_Scale")
+                sceneScaleBox.setComment("Main Scene Scale")
+                sceneScaleBox.setColor(hou.Color(0, 0, 0))
+                sceneScaleBox.addItem(nullSop)
                 # We have to separate the cameras because they have a diff naming convention " ABC_CAM_"
-                if "cam" in file_name:
-                    file_name = hou.node("obj/" + "ABC_CAM_" + file_name)
-                    file_name.setInput(0, nullSop)
-                else:
-                    file_name = hou.node("obj/" + "ABC_" + file_name)
-                    ref_path = "ch(\"../scene_SCALE/"
-                    # Uniform Scale
-                    file_name.parm("scale").setExpression(ref_path + "scale\")")
-                    # Translate
-                    file_name.parmTuple("t")[0].setExpression(ref_path + "tx\")")
-                    file_name.parmTuple("t")[1].setExpression(ref_path + "ty\")")
-                    file_name.parmTuple("t")[2].setExpression(ref_path + "tz\")")
-                    # Rotation
-                    file_name.parmTuple("r")[0].setExpression(ref_path + "rx\")")
-                    file_name.parmTuple("r")[1].setExpression(ref_path + "ry\")")
-                    file_name.parmTuple("r")[2].setExpression(ref_path + "rz\")")
-                    # Scaling
-                    file_name.parmTuple("s")[0].setExpression(ref_path + "sx\")")
-                    file_name.parmTuple("s")[1].setExpression(ref_path + "sy\")")
-                    file_name.parmTuple("s")[2].setExpression(ref_path + "sz\")")
+                if all_cameras:
+                    for cam in all_cameras:
+                        cam.setInput(0, nullSop)
+            for file_name in root_path.glob("ABC_*"):
+                ref_path = "ch(\"../scene_SCALE/"
+                # Uniform Scale
+                file_name.parm("scale").setExpression(ref_path + "scale\")")
+                # Translate
+                file_name.parmTuple("t")[0].setExpression(ref_path + "tx\")")
+                file_name.parmTuple("t")[1].setExpression(ref_path + "ty\")")
+                file_name.parmTuple("t")[2].setExpression(ref_path + "tz\")")
+                # Rotation
+                file_name.parmTuple("r")[0].setExpression(ref_path + "rx\")")
+                file_name.parmTuple("r")[1].setExpression(ref_path + "ry\")")
+                file_name.parmTuple("r")[2].setExpression(ref_path + "rz\")")
+                # Scaling
+                file_name.parmTuple("s")[0].setExpression(ref_path + "sx\")")
+                file_name.parmTuple("s")[1].setExpression(ref_path + "sy\")")
+                file_name.parmTuple("s")[2].setExpression(ref_path + "sz\")")
+
             # Get Camera NetWorkBox Position and move the null "scene_SCALE" above it
             cameraNetWorkBox = hou.node("obj/").findNetworkBox("Camera")
             nodesNetWorkBox = hou.node("obj/").findNetworkBox("Nodes")
+            sceneScaleBox = hou.node("obj/").findNetworkBox("Scene_Scale")
             if cameraNetWorkBox:
                 cameraNetWorkBoxPos = cameraNetWorkBox.position()
                 sceneScaleBox.setPosition(hou.Vector2(cameraNetWorkBoxPos[0], abs(cameraNetWorkBoxPos[1]) + 1))
