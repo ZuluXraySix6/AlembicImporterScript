@@ -8,8 +8,8 @@ INSTALLATION#
 import importlib as il
 import alembicimporter as ai
 appWin = ai.MainWindow()
-
 il.reload(ai)
+
 
 4. Save the Shelf Tool Again.
 
