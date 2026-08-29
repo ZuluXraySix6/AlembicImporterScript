@@ -588,11 +588,3 @@ else:\n
         self.chkBxAddFileCache.setText(_translate("Form", "Add File Cache"))
         self.executeBtn.setText(_translate("Form", "Execute"))
         self.cancelBtn.setText(_translate("Form", "Cancel"))
-
-
-try:
-    myWindow.close()
-except:
-    pass
-myWindow = MainWindow()
-myWindow.show()
