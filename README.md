@@ -36,5 +36,3 @@ Saving the Python Files :
 3. Thanks.
 
 ![image](https://github.com/ZuluXraySix6/AlembicImporterScript/assets/108427116/fa17c769-7fbf-496c-986b-7c8bffced654)
-
-
