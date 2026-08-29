@@ -5,26 +5,7 @@ Making the Shelf Tool
 2. Save the shelf tool.
 3. Goto the Script Tab. Insert this code below :
 
-import importlib as il
-import abcimporter as ai
-import hou
-
-il.reload(ai)
-
-# Check whether the window already exists
-if hasattr(hou.session, "abcImporterWindow"):
-    try:
-        if hou.session.abcImporterWindow.isVisible():
-            hou.session.abcImporterWindow.raise_()
-            hou.session.abcImporterWindow.activateWindow()
-        else:
-            hou.session.abcImporterWindow.show()
-    except:
-        hou.session.abcImporterWindow = ai.MainWindow()
-        hou.session.abcImporterWindow.show()
-else:
-    hou.session.abcImporterWindow = ai.MainWindow()
-    hou.session.abcImporterWindow.show()
+Check the ShelfTool.py file. Copy and paste that code inside the Shelf Tool > Script Tab.
 
 This will tie the tool to Houdini Session. So, clicking the tool multiple times wont create multiple instances.
 
